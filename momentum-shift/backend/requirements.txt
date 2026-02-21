@@ -1,0 +1,11 @@
+# Phase 1: Environment Setup
+fastapi
+uvicorn
+supabase
+nba_api
+pandas
+numpy
+scikit-learn
+joblib
+python-dotenv
+httpx

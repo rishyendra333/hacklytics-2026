@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import {
     AreaChart,
     Area,
@@ -10,7 +11,7 @@ import {
     ReferenceLine
 } from 'recharts';
 
-interface MomentumPoint {
+export interface MomentumPoint {
     sequenceNumber: string;
     clock: string;
     period: number;
@@ -27,6 +28,12 @@ interface MomentumChartProps {
     data: MomentumPoint[];
     homeTeamColor?: string;
     awayTeamColor?: string;
+}
+
+interface RunPrediction {
+    run_probability: number;
+    confidence: string;
+    message: string;
 }
 
 const CustomTooltip = ({ active, payload }: any) => {
@@ -62,6 +69,39 @@ const MomentumChart: React.FC<MomentumChartProps> = ({
     homeTeamColor = "#10b981", // default positive green
     awayTeamColor = "#ef4444"  // default negative red
 }) => {
+    const [prediction, setPrediction] = useState<RunPrediction | null>(null);
+
+    // Run Predictor Polling
+    useEffect(() => {
+        // Need enough data points to form a 5-bucket window
+        if (!data || data.length < 10) return;
+
+        const checkRunPrediction = async () => {
+            try {
+                // Approximate mapping: take the last 5 momentum values
+                // In a real scenario, this involves bucketing the actual timeframe exactly as the pipeline does
+                const recentPlays = data.slice(-5);
+                const momentumWindow = recentPlays.map(p => p.momentum / 100); // Normalize generic -100 to +100 to backend's -1 to 1
+
+                // Send a generic score diff for the MVP based on current momentum magnitude
+                const scoreDiff = data[data.length - 1].momentum;
+
+                const response = await axios.post('http://localhost:8000/api/predict-run', {
+                    momentum_window: momentumWindow,
+                    score_diff: scoreDiff
+                });
+
+                setPrediction(response.data);
+            } catch (err) {
+                console.error("Failed to fetch run prediction from ML backend", err);
+            }
+        };
+
+        checkRunPrediction();
+        const interval = setInterval(checkRunPrediction, 30000); // Check every 30s
+        return () => clearInterval(interval);
+    }, [data]);
+
     if (!data || data.length === 0) {
         return (
             <div className="glass-panel p-6 rounded-lg shadow-xl mb-6 h-[400px] flex items-center justify-center bg-gray-900 border border-gray-800/50">
@@ -99,10 +139,22 @@ const MomentumChart: React.FC<MomentumChartProps> = ({
             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTEgMWgydjJIMUMxeiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjAyKSIgZmlsbC1ydWxlPSJldmVub2RkIi8+PC9zdmc+')] pointer-events-none opacity-50 mix-blend-overlay"></div>
 
             <div className="flex justify-between items-center mb-6 relative z-10">
-                <h2 className="text-lg font-bold tracking-widest text-gray-300 uppercase flex items-center">
-                    <span className="w-1.5 h-6 bg-blue-500 mr-3 rounded-full"></span>
-                    Game Momentum Index
-                </h2>
+                <div className="flex items-center gap-4">
+                    <h2 className="text-lg font-bold tracking-widest text-gray-300 uppercase flex items-center">
+                        <span className="w-1.5 h-6 bg-blue-500 mr-3 rounded-full"></span>
+                        Game Momentum Index
+                    </h2>
+
+                    {/* Run Predictor Badge */}
+                    {prediction && prediction.run_probability > 0.6 && (
+                        <div className="flex items-center gap-2 px-3 py-1 bg-green-500/20 border border-green-500/50 rounded-full animate-pulse shadow-[0_0_15px_rgba(34,197,94,0.3)]">
+                            <span className="text-xl">⚡</span>
+                            <span className="text-green-400 font-bold text-sm whitespace-nowrap">
+                                Run Incoming ({Math.round(prediction.run_probability * 100)}%)
+                            </span>
+                        </div>
+                    )}
+                </div>
                 <div className="flex gap-4 text-xs font-mono">
                     <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)]" style={{ backgroundColor: homeTeamColor }}></span>HOME ADVANTAGE</div>
                     <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]" style={{ backgroundColor: awayTeamColor }}></span>AWAY ADVANTAGE</div>

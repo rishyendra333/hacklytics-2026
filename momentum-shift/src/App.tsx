@@ -5,6 +5,7 @@ import Scoreboard from './components/Scoreboard';
 import MomentumChart from './components/MomentumChart';
 import PlayByPlay from './components/PlayByPlay';
 import GameLibrary from './components/GameLibrary';
+import GameDNA from './components/GameDNA';
 
 // Fallback game: Celtics vs Hornets (for when no live/recent games are suitable)
 const DEFAULT_GAME_ID = '401585715';
@@ -225,6 +226,9 @@ function App() {
               </p>
             )}
           </div>
+
+          {/* Game DNA Analysis Component */}
+          <GameDNA data={momentumData} />
         </div>
 
         {/* Sidebar */}
