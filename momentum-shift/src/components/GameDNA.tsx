@@ -4,6 +4,7 @@ import type { MomentumPoint } from './MomentumChart';
 
 interface GameDNAProps {
     data: MomentumPoint[];
+    selectedTimeWindow?: {start: number, end: number} | null;
 }
 
 interface SimilarGame {
@@ -20,7 +21,7 @@ interface DNAData {
     results: SimilarGame[];
 }
 
-const GameDNA: React.FC<GameDNAProps> = ({ data }) => {
+const GameDNA: React.FC<GameDNAProps> = ({ data, selectedTimeWindow }) => {
     const [dnaResults, setDnaResults] = useState<DNAData | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -34,12 +35,17 @@ const GameDNA: React.FC<GameDNAProps> = ({ data }) => {
         const fetchGameDNA = async () => {
             setLoading(true);
             try {
-                // To query the backend, we need exactly 20 floats.
-                // We'll approximate this by taking up to the last 20 momentum points
-                // and padding/interpolating if necessary. 
-                // For MVP purpose, we'll take the first 20 or pad if slightly less.
+                // Use selected time window if available, otherwise use all data
+                const dataToUse = selectedTimeWindow 
+                    ? data.slice(selectedTimeWindow.start, selectedTimeWindow.end + 1)
+                    : data;
 
-                let vector = data.map(p => p.momentum / 100);
+                // To query the backend, we need exactly 20 floats.
+                // Normalize momentum values to -1 to 1 range (divide by 100)
+                let vector = dataToUse.map(p => {
+                    // Normalize: momentum is in -100 to 100 range, convert to -1 to 1
+                    return Math.max(-1, Math.min(1, p.momentum / 100));
+                });
                 if (vector.length > 20) {
                     // Quick downsample taking evenly spaced points
                     const step = vector.length / 20;
@@ -67,10 +73,9 @@ const GameDNA: React.FC<GameDNAProps> = ({ data }) => {
             }
         };
 
-        // Only fetch once when a substantial amount of game data is loaded
-        // In a real app we might debouce this or let the user click a button to "Analyze DNA"
+        // Fetch when data changes or time window is selected
         fetchGameDNA();
-    }, [data.length > 15]); // Dependency condition to only trigger when crossing the 15 play threshold
+    }, [data.length, selectedTimeWindow?.start, selectedTimeWindow?.end]); // Re-fetch when time window changes
 
     if (!data || data.length < 15) {
         return null; // Don't show the card until we have enough data
@@ -80,9 +85,16 @@ const GameDNA: React.FC<GameDNAProps> = ({ data }) => {
         <div className="mt-6 mb-6">
             <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase mb-4 flex items-center justify-between">
                 <span>🧬 Game DNA Analysis</span>
-                {dnaResults?.using_mock_data && (
-                    <span className="text-[10px] bg-gray-800 text-gray-500 px-2 py-0.5 rounded border border-gray-700">Sample Data</span>
-                )}
+                <div className="flex gap-2 items-center">
+                    {selectedTimeWindow && (
+                        <span className="text-[10px] bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded border border-blue-800/50">
+                            Time Period Selected
+                        </span>
+                    )}
+                    {dnaResults?.using_mock_data && (
+                        <span className="text-[10px] bg-gray-800 text-gray-500 px-2 py-0.5 rounded border border-gray-700">Sample Data</span>
+                    )}
+                </div>
             </h3>
 
             {loading ? (

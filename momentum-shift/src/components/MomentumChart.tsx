@@ -3,12 +3,14 @@ import axios from 'axios';
 import {
     AreaChart,
     Area,
+    Line,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    ReferenceLine
+    ReferenceLine,
+    ComposedChart
 } from 'recharts';
 
 export interface MomentumPoint {
@@ -28,6 +30,7 @@ interface MomentumChartProps {
     data: MomentumPoint[];
     homeTeamColor?: string;
     awayTeamColor?: string;
+    onTimePeriodSelect?: (startIndex: number, endIndex: number) => void;
 }
 
 interface RunPrediction {
@@ -49,7 +52,13 @@ const CustomTooltip = ({ active, payload }: any) => {
                 <p className="text-gray-100 font-medium leading-tight mb-2">"{data.text}"</p>
 
                 <div className="flex justify-between mt-2 pt-2 border-t border-gray-800">
-                    <span className="text-gray-400">Impact</span>
+                    <span className="text-gray-400">Momentum</span>
+                    <span className={`font-bold text-lg ${data.momentum > 0 ? 'text-green-400' : data.momentum < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                        {data.momentum > 0 ? '+' : ''}{data.momentum.toFixed(1)}
+                    </span>
+                </div>
+                <div className="flex justify-between mt-1">
+                    <span className="text-gray-400">Play Impact</span>
                     <span className={`font-bold ${data.rawImpact > 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {data.rawImpact > 0 ? '+' : ''}{data.rawImpact}
                     </span>
@@ -67,9 +76,11 @@ const CustomTooltip = ({ active, payload }: any) => {
 const MomentumChart: React.FC<MomentumChartProps> = ({
     data,
     homeTeamColor = "#10b981", // default positive green
-    awayTeamColor = "#ef4444"  // default negative red
+    awayTeamColor = "#ef4444",  // default negative red
+    onTimePeriodSelect
 }) => {
     const [prediction, setPrediction] = useState<RunPrediction | null>(null);
+    const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
     // Run Predictor Polling
     useEffect(() => {
@@ -117,12 +128,55 @@ const MomentumChart: React.FC<MomentumChartProps> = ({
         );
     }
 
+    // Filter out any invalid data points and ensure momentum is a number
+    const validData = data
+        .map((d, idx) => ({ ...d, index: idx }))
+        .filter(d => d.momentum !== undefined && d.momentum !== null && !isNaN(d.momentum));
+    
+    if (validData.length === 0) {
+        return (
+            <div className="glass-panel p-6 rounded-lg shadow-xl mb-6 h-[400px] flex items-center justify-center bg-gray-900 border border-gray-800/50">
+                <div className="text-center text-gray-500">
+                    <p>No valid momentum data available</p>
+                </div>
+            </div>
+        );
+    }
+
     // To create a two-color area chart where above 0 is one color and below 0 is another,
     // recharts supports gradient with generic offset.
 
     // Calculate where zero crosses for the gradient
-    const maxValue = Math.max(...data.map(d => d.momentum));
-    const minValue = Math.min(...data.map(d => d.momentum));
+    const momentums = validData.map(d => d.momentum);
+    const maxValue = Math.max(...momentums);
+    const minValue = Math.min(...momentums);
+    const range = maxValue - minValue;
+    
+    // Ensure the domain is always visible and meaningful
+    // Use symmetric domain centered at 0
+    const absMax = Math.max(Math.abs(maxValue), Math.abs(minValue));
+    
+    // If values are very small, use a minimum range
+    // Otherwise, add 15% padding to the actual range
+    let domainMax, domainMin;
+    
+    if (absMax < 5) {
+        // Very small values - use a fixed small range
+        domainMax = 10;
+        domainMin = -10;
+    } else if (absMax < 20) {
+        // Small range - ensure at least 20 units visible
+        domainMax = Math.max(absMax * 1.3, 20);
+        domainMin = -domainMax;
+    } else {
+        // Normal range - add padding
+        domainMax = absMax * 1.15;
+        domainMin = -domainMax;
+    }
+    
+    // Never exceed the theoretical max
+    domainMax = Math.min(domainMax, 100);
+    domainMin = Math.max(domainMin, -100);
 
     let zeroOffset = 0;
     if (maxValue <= 0) {
@@ -162,47 +216,116 @@ const MomentumChart: React.FC<MomentumChartProps> = ({
             </div>
 
             <div className="w-full h-full pb-8">
+                {onTimePeriodSelect && (
+                    <div className="text-xs text-gray-400 mb-2 text-center italic">
+                        💡 Hover over the chart and click on a data point to analyze that time period
+                        {selectedIndex !== null && ` • Selected: Play #${selectedIndex + 1}`}
+                    </div>
+                )}
                 <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                        data={data}
+                    <ComposedChart
+                        data={validData}
                         margin={{
                             top: 10,
                             right: 30,
                             left: 0,
-                            bottom: 0,
+                            bottom: 20,
                         }}
                     >
                         <defs>
-                            <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset={zeroOffset} stopColor={homeTeamColor} stopOpacity={0.8} />
-                                <stop offset={zeroOffset} stopColor={awayTeamColor} stopOpacity={0.8} />
+                            <linearGradient id="positiveGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={homeTeamColor} stopOpacity={0.6} />
+                                <stop offset="100%" stopColor={homeTeamColor} stopOpacity={0.05} />
+                            </linearGradient>
+                            <linearGradient id="negativeGradient" x1="0" y1="1" x2="0" y2="0">
+                                <stop offset="0%" stopColor={awayTeamColor} stopOpacity={0.6} />
+                                <stop offset="100%" stopColor={awayTeamColor} stopOpacity={0.05} />
                             </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.4} vertical={false} />
                         <XAxis
-                            dataKey="sequenceNumber"
-                            hide={true} // Hide standard X-axis numbers as sequence numbers aren't human-readable time
-                        />
-                        <YAxis
-                            domain={[-100, 100]}
-                            tickFormatter={(val) => val === 0 ? 'EVEN' : Math.abs(val).toString()}
-                            stroke="#4B5563"
-                            tick={{ fill: '#9CA3AF', fontSize: 12, fontFamily: 'monospace' }}
-                            width={50}
+                            dataKey="index"
+                            type="number"
+                            scale="linear"
+                            domain={[0, validData.length - 1]}
+                            tick={false}
                             axisLine={false}
                             tickLine={false}
+                            label={{ value: 'Game Progress', position: 'insideBottom', offset: -5, style: { fill: '#9CA3AF', fontSize: 11 } }}
                         />
-                        <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1, strokeDasharray: '4 4' }} />
-                        <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" opacity={0.5} />
+                        <YAxis
+                            domain={[domainMin, domainMax]}
+                            tickFormatter={(val) => {
+                                if (val === 0) return 'EVEN';
+                                const absVal = Math.abs(val);
+                                return absVal >= 1 ? absVal.toFixed(0) : absVal.toFixed(1);
+                            }}
+                            stroke="#4B5563"
+                            tick={{ fill: '#9CA3AF', fontSize: 11, fontFamily: 'monospace' }}
+                            width={60}
+                            axisLine={false}
+                            tickLine={false}
+                            label={{ value: 'Momentum', angle: -90, position: 'insideLeft', style: { fill: '#9CA3AF', fontSize: 11 } }}
+                        />
+                        <Tooltip 
+                            content={(props: any) => {
+                                // Make tooltip clickable
+                                const handleClick = () => {
+                                    if (onTimePeriodSelect && props && props.active && props.payload && props.payload[0] && props.payload[0].payload) {
+                                        const clickedIndex = props.payload[0].payload.index;
+                                        // Select a window around the clicked point (20 plays total)
+                                        const windowSize = 20;
+                                        const startIndex = Math.max(0, clickedIndex - Math.floor(windowSize / 2));
+                                        const endIndex = Math.min(validData.length - 1, clickedIndex + Math.floor(windowSize / 2));
+                                        setSelectedIndex(clickedIndex);
+                                        onTimePeriodSelect(startIndex, endIndex);
+                                    }
+                                };
+                                return (
+                                    <div onClick={handleClick} style={{ cursor: 'pointer' }}>
+                                        <CustomTooltip {...props} />
+                                    </div>
+                                );
+                            }}
+                            cursor={{ stroke: 'rgba(255,255,255,0.3)', strokeWidth: 2, strokeDasharray: '4 4' }}
+                        />
+                        <ReferenceLine y={0} stroke="#6B7280" strokeWidth={2} strokeDasharray="3 3" opacity={0.6} />
+                        {/* Area for positive momentum (above zero line) */}
                         <Area
                             type="monotone"
-                            dataKey="momentum"
+                            dataKey={(entry: any) => entry.momentum > 0 ? entry.momentum : 0}
                             stroke="none"
-                            fill="url(#splitColor)"
-                            activeDot={{ r: 6, fill: '#fff', strokeWidth: 0 }}
+                            fill="url(#positiveGradient)"
+                            fillOpacity={1}
+                            baseLine={0}
+                            connectNulls={true}
+                        />
+                        {/* Area for negative momentum (below zero line) */}
+                        <Area
+                            type="monotone"
+                            dataKey={(entry: any) => entry.momentum < 0 ? entry.momentum : 0}
+                            stroke="none"
+                            fill="url(#negativeGradient)"
+                            fillOpacity={1}
+                            baseLine={0}
+                            connectNulls={true}
+                        />
+                        {/* Line on top for visibility - use a neutral color that works for both */}
+                        <Line
+                            type="monotone"
+                            dataKey="momentum"
+                            stroke="#ffffff"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ 
+                                r: 7, 
+                                fill: '#fff', 
+                                strokeWidth: 3,
+                                stroke: '#3b82f6'
+                            }}
                             animationDuration={1500}
                         />
-                    </AreaChart>
+                    </ComposedChart>
                 </ResponsiveContainer>
             </div>
         </div>

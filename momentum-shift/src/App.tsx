@@ -26,6 +26,7 @@ function App() {
   const [momentumData, setMomentumData] = useState<any[]>([]);
   const [recentPlays, setRecentPlays] = useState<any[]>([]);
   const [gameStory, setGameStory] = useState<string>("Analyzing game flow...");
+  const [selectedTimeWindow, setSelectedTimeWindow] = useState<{start: number, end: number} | null>(null);
 
   // 1. Initial Data Fetch: Find the best game to display
   useEffect(() => {
@@ -208,6 +209,30 @@ function App() {
             data={momentumData}
             homeTeamColor={homeTeam?.color}
             awayTeamColor={awayTeam?.color}
+            onTimePeriodSelect={(startIndex, endIndex) => {
+              setSelectedTimeWindow({start: startIndex, end: endIndex});
+              
+              // Update narrative based on selected time period
+              const selectedPlays = momentumData.slice(startIndex, endIndex + 1);
+              if (selectedPlays.length > 0) {
+                const momentumChange = selectedPlays[selectedPlays.length - 1].momentum - (selectedPlays[0]?.momentum || 0);
+                const avgMomentum = selectedPlays.reduce((sum, p) => sum + p.momentum, 0) / selectedPlays.length;
+                const startTime = selectedPlays[0]?.clock || 'N/A';
+                const endTime = selectedPlays[selectedPlays.length - 1]?.clock || 'N/A';
+                
+                if (momentumChange > 15) {
+                  setGameStory(`From ${startTime} to ${endTime}: The ${homeTeam?.name || 'home team'} built strong momentum during this period, with an average momentum of ${avgMomentum.toFixed(1)}.`);
+                } else if (momentumChange < -15) {
+                  setGameStory(`From ${startTime} to ${endTime}: The ${awayTeam?.name || 'away team'} dominated this stretch, with an average momentum of ${avgMomentum.toFixed(1)}.`);
+                } else if (avgMomentum > 10) {
+                  setGameStory(`From ${startTime} to ${endTime}: The ${homeTeam?.name || 'home team'} maintained control during this period with an average momentum of ${avgMomentum.toFixed(1)}.`);
+                } else if (avgMomentum < -10) {
+                  setGameStory(`From ${startTime} to ${endTime}: The ${awayTeam?.name || 'away team'} held the advantage during this stretch with an average momentum of ${avgMomentum.toFixed(1)}.`);
+                } else {
+                  setGameStory(`From ${startTime} to ${endTime}: This was a balanced period with an average momentum of ${avgMomentum.toFixed(1)}. Neither team gained a significant advantage.`);
+                }
+              }
+            }}
           />
 
           {/* Narrative Area below chart */}
@@ -228,7 +253,7 @@ function App() {
           </div>
 
           {/* Game DNA Analysis Component */}
-          <GameDNA data={momentumData} />
+          <GameDNA data={momentumData} selectedTimeWindow={selectedTimeWindow} />
         </div>
 
         {/* Sidebar */}

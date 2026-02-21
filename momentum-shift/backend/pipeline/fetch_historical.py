@@ -2,7 +2,7 @@ import os
 import time
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from nba_api.stats.endpoints import leaguegamelog, playbyplayv2
+from nba_api.stats.endpoints import leaguegamelog, playbyplayv3
 
 # Load environment variables
 load_dotenv()
@@ -91,16 +91,35 @@ def compute_momentum_vector(plays, home_team_id, total_seconds=2880, num_buckets
 
 def main():
     print("Starting historical data fetch...")
+    print("Note: Some games may not have play-by-play data available in the NBA API.")
+    print("If many games fail, consider using seed_mock_data.py for demo purposes.\n")
     
     # Get recent games
     try:
-        # Fetching regular season games for current season (assuming 2023-24 or similar)
-        # nba_api defaults to current/latest season if not specified
-        gamelog = leaguegamelog.LeagueGameLog(season='2023-24', season_type_all_star='Regular Season')
+        # Try to get current season games
+        # You can change the season here if needed (format: 'YYYY-YY' like '2024-25')
+        from datetime import datetime
+        current_year = datetime.now().year
+        # NBA season spans two years, so if we're after July, it's the new season
+        if datetime.now().month >= 7:
+            season = f"{current_year}-{str(current_year+1)[-2:]}"
+        else:
+            season = f"{current_year-1}-{str(current_year)[-2:]}"
+        
+        print(f"Fetching games from {season} season...")
+        gamelog = leaguegamelog.LeagueGameLog(season=season, season_type_all_star='Regular Season')
         games_df = gamelog.get_data_frames()[0]
+        selected_season = season
     except Exception as e:
         print(f"Error fetching game log: {e}")
-        return
+        print("Trying fallback to 2023-24 season...")
+        try:
+            selected_season = '2023-24'
+            gamelog = leaguegamelog.LeagueGameLog(season=selected_season, season_type_all_star='Regular Season')
+            games_df = gamelog.get_data_frames()[0]
+        except Exception as e2:
+            print(f"Fallback also failed: {e2}")
+            return
 
     # We need unique game IDs. The game log has one row per team per game.
     unique_games = games_df.drop_duplicates(subset=['GAME_ID'])
@@ -132,9 +151,27 @@ def main():
             # Rate limiting
             time.sleep(0.6)
             
-            pbp = playbyplayv2.PlayByPlayV2(game_id=game_id)
-            plays_df = pbp.get_data_frames()[0]
+            pbp = playbyplayv3.PlayByPlayV3(game_id=game_id)
+            data_frames = pbp.get_data_frames()
+            
+            # PlayByPlayV3 returns multiple dataframes
+            # We need to find the one with play-by-play data (usually has PERIOD, PCTIMESTRING columns)
+            plays_df = None
+            for df in data_frames:
+                if not df.empty and 'PERIOD' in df.columns and 'PCTIMESTRING' in df.columns:
+                    plays_df = df
+                    break
+            
+            if plays_df is None or plays_df.empty:
+                print(f"  No valid play-by-play data available for {game_id}")
+                continue
+                
             plays = plays_df.to_dict('records')
+            
+            # Validate we have plays
+            if not plays or len(plays) == 0:
+                print(f"  No plays found for {game_id}")
+                continue
             
             # Extract basic game info
             # Matchup format is usually "ATL vs. BOS" or "ATL @ BOS"
@@ -159,7 +196,7 @@ def main():
             # Prepare record
             record = {
                 "game_id": game_id,
-                "season": "2023-24",
+                "season": selected_season,  # Use the season we fetched
                 "home_team": home_team,
                 "away_team": away_team,
                 "final_score": "Unknown", # Would need boxscore for this, simplifying for now
@@ -172,8 +209,16 @@ def main():
             print(f"Successfully processed and stored {game_id}")
             games_processed += 1
             
+        except KeyError as ke:
+            print(f"Error processing {game_id}: Missing key in API response - {ke}")
+            print(f"  This might mean play-by-play data isn't available for this game.")
+            print(f"  Try using seed_mock_data.py for demo purposes, or try a different season.")
         except Exception as e:
             print(f"Error processing {game_id}: {e}")
+            import traceback
+            if "timeout" in str(e).lower() or "rate" in str(e).lower():
+                print(f"  Rate limit or timeout - waiting longer before next request...")
+                time.sleep(2)  # Wait longer if rate limited
             
     print(f"\nPipeline finished. Processed: {games_processed}, Skipped: {games_skipped}")
 

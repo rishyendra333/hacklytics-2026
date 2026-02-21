@@ -84,66 +84,78 @@ function calculateMomentumSeries(plays, homeTeamId, awayTeamId) {
     let currentMomentum = 0;
     const momentumMax = 100;
     const history = [];
+    
+    // Momentum decay factor - reduces impact of older plays gradually
+    // For live games, we want recent plays to matter more
+    // For completed games, we still want to show the full momentum flow
+    const decayWindow = 10; // Number of plays to consider for decay (rolling window)
 
     // The plays are usually chronologically ordered in ESPN API, but let's ensure it.
-    // However, some past games might be ordered differently. We assume they are ordered
-    // either oldest to newest or newest to oldest. We'll sort to be safe: newest last.
     const sortedPlays = [...plays].sort((a, b) => {
         return new Date(a.wallclock).getTime() - new Date(b.wallclock).getTime();
     });
 
-    const lastPlayTime = sortedPlays.length > 0
-        ? new Date(sortedPlays[sortedPlays.length - 1].wallclock)
-        : new Date();
-
-    for (const play of sortedPlays) {
+    for (let i = 0; i < sortedPlays.length; i++) {
+        const play = sortedPlays[i];
         if (!play.wallclock || !play.team || !play.team.id) continue;
 
-        const playTime = new Date(play.wallclock);
         const rawImpact = calculatePlayImpact(play);
-        const decay = calculateTimeDecay(playTime, lastPlayTime, 5); // 5 minute window
-
-        const finalImpact = rawImpact * decay;
-
-        if (finalImpact > 0) {
-            // Determine sign based on team
-            if (play.team.id === homeTeamId) {
-                // Home team positive play (or away turnover credited to home defense logic)
-                currentMomentum += finalImpact;
-            } else if (play.team.id === awayTeamId) {
-                // Away team positive play
-                currentMomentum -= finalImpact;
-            }
-
-            // Optional logic: if it's a turnover, the finalImpact is negative above, 
-            // so adding it actually subtracts.
-            // Wait, calculatePlayImpact returns negative for turnovers.
-            // If home team turns over, rawImpact = -5. 
-            // currentMomentum += -5 (lowers momentum for home) -> Correct.
-        } else if (finalImpact < 0) {
-            // Turnover or negative play
-            if (play.team.id === homeTeamId) {
-                currentMomentum += finalImpact; // home team turnover -> negative momentum shift
-            } else if (play.team.id === awayTeamId) {
-                currentMomentum -= finalImpact; // away team turnover -> -(-5) -> positive shift for home
-            }
+        
+        // Apply a rolling decay - only decay plays that are far back in the window
+        // This allows momentum to build up properly while still favoring recent plays
+        const playsBack = sortedPlays.length - i - 1;
+        let decayMultiplier = 1.0;
+        
+        // For completed games or games with many plays, use a rolling average approach
+        // Only apply decay if we're looking at plays far back in history
+        if (playsBack > decayWindow) {
+            // Gradual decay for very old plays
+            decayMultiplier = Math.max(0.3, 1.0 - (playsBack - decayWindow) / (decayWindow * 2));
         }
 
-        // Clamp momentum between -100 and 100
+        const finalImpact = rawImpact * decayMultiplier;
+
+        // Apply impact based on team
+        if (play.team.id === homeTeamId) {
+            // Home team play
+            currentMomentum += finalImpact;
+        } else if (play.team.id === awayTeamId) {
+            // Away team play - subtract from momentum (negative = away advantage)
+            currentMomentum -= finalImpact;
+        }
+
+        // Clamp momentum between -momentumMax and +momentumMax
         currentMomentum = Math.max(-momentumMax, Math.min(momentumMax, currentMomentum));
 
         history.push({
-            sequenceNumber: play.sequenceNumber,
-            clock: play.clock?.displayValue,
-            period: play.period?.number,
-            text: play.text,
+            sequenceNumber: play.sequenceNumber || i.toString(),
+            clock: play.clock?.displayValue || play.clock?.value || '',
+            period: play.period?.number || 1,
+            text: play.text || '',
             teamId: play.team.id,
-            homeScore: play.homeScore,
-            awayScore: play.awayScore,
+            homeScore: play.homeScore || 0,
+            awayScore: play.awayScore || 0,
             momentum: parseFloat(currentMomentum.toFixed(2)),
             rawImpact: rawImpact,
-            type: play.type?.text
+            type: play.type?.text || ''
         });
+    }
+
+    // Normalize the momentum series to ensure good visibility
+    // If the range is too small, scale it up
+    if (history.length > 0) {
+        const momentums = history.map(h => h.momentum);
+        const maxMomentum = Math.max(...momentums);
+        const minMomentum = Math.min(...momentums);
+        const range = maxMomentum - minMomentum;
+        
+        // If the range is very small (< 20), scale it up to make it more visible
+        if (range > 0 && range < 20) {
+            const scaleFactor = 20 / range;
+            history.forEach(h => {
+                h.momentum = Math.max(-momentumMax, Math.min(momentumMax, h.momentum * scaleFactor));
+            });
+        }
     }
 
     return history;

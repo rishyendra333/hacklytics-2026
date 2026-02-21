@@ -129,11 +129,44 @@ Momentum Shift uses Supabase (PostgreSQL) to store game fingerprints and player 
 
 1. Once your project is ready, go to **Project Settings** (gear icon in the left sidebar)
 2. Click on **API** in the settings menu
-3. You'll see two important values:
-   - **Project URL**: Looks like `https://xxxxxxxxxxxxx.supabase.co`
-   - **Project API keys**: You need the **`anon` `public`** key (not the `service_role` key)
 
-4. **Copy both values** - you'll need them in the next step.
+3. **Finding the Project URL:**
+   
+   The Project URL might not be directly visible. Here are ways to find it:
+   
+   **Option A: Check the General Settings Tab**
+   - Go to **Project Settings** → **General** (instead of API)
+   - Look for **"Reference ID"** or **"Project Reference"** 
+   - Your Project URL is: `https://[YOUR-REFERENCE-ID].supabase.co`
+   - Example: If Reference ID is `abcdefghijklmnop`, URL is `https://abcdefghijklmnop.supabase.co`
+   
+   **Option B: Use the Project ID you see**
+   - In the API settings, you mentioned seeing a **Project ID**
+   - The Project URL format is: `https://[PROJECT-ID].supabase.co`
+   - Simply replace `[PROJECT-ID]` with the ID you see
+   - Example: If Project ID is `xyz123abc`, URL is `https://xyz123abc.supabase.co`
+   
+   **Option C: Check the URL bar**
+   - When you're in your Supabase project dashboard, look at the browser URL
+   - It might show something like: `https://app.supabase.com/project/[PROJECT-ID]`
+   - Use that `[PROJECT-ID]` to construct: `https://[PROJECT-ID].supabase.co`
+   
+   **The Project URL should look like:** `https://xxxxxxxxxxxxx.supabase.co`
+
+4. **Finding the API Key:**
+   
+   In the **API** settings tab, you should see:
+   - **Project API keys** section with multiple keys
+   - Look for the key labeled **"anon"** or **"public"** (NOT "service_role")
+   - This is the key you need - it's safe to use in your code
+   - Copy the entire key (it's a long JWT token starting with `eyJ...`)
+   - If you only see one key labeled "Secret API key", that might be the service_role key - you need the anon/public key instead
+
+5. **What you need:**
+   - **Project URL**: `https://[your-project-id].supabase.co` (constructed from Project ID)
+   - **API Key**: The `anon` `public` key from the API keys section
+
+6. **Copy both values** - you'll need them in the next step.
 
 ---
 
@@ -418,6 +451,21 @@ curl "http://localhost:8000/api/similar-games?momentum_vector=0,0,0,0,0,0,0,0,0,
   - Double-check you copied the `anon` `public` key (not `service_role`)
   - Verify the key is correct in your `.env` file
   - Make sure there are no extra spaces or quotes in your `.env` file
+
+**Problem: "Can't find Project URL in API settings"**
+- **Solution**: 
+  - Go to **Project Settings** → **General** tab
+  - Look for **"Reference ID"** or **"Project Reference"**
+  - Construct the URL as: `https://[REFERENCE-ID].supabase.co`
+  - Or use the Project ID you see: `https://[PROJECT-ID].supabase.co`
+
+**Problem: "Only see 'Secret API key' but no 'anon' key"**
+- **Solution**: 
+  - The "Secret API key" is usually the `service_role` key (don't use this)
+  - Scroll down in the API settings - the `anon` `public` key should be below
+  - Look for a section labeled **"Project API keys"** with multiple keys listed
+  - The `anon` key is typically the first one listed and labeled as "anon" or "public"
+  - If you still can't find it, try refreshing the page or check if your project is fully provisioned
 
 ### Model Training Issues
 
