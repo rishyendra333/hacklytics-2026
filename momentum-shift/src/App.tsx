@@ -6,6 +6,7 @@ import MomentumChart from './components/MomentumChart';
 import PlayByPlay from './components/PlayByPlay';
 import GameLibrary from './components/GameLibrary';
 import GameDNA from './components/GameDNA';
+import { generateGameNarrative, generateTimeWindowNarrative } from './utils/narrativeEngine';
 
 // Fallback game: Celtics vs Hornets (for when no live/recent games are suitable)
 const DEFAULT_GAME_ID = '401585715';
@@ -84,43 +85,48 @@ function App() {
           const away = comp.competitors.find((c: any) => c.homeAway === 'away');
 
           if (home && away) {
-            setHomeTeam({
+            const freshHome = {
               id: home.id,
               name: home.team.name,
               abbreviation: home.team.abbreviation,
               logo: home.team.logos?.[0]?.href,
               score: home.score,
               color: home.team.color ? `#${home.team.color}` : '#10b981'
-            });
-
-            setAwayTeam({
+            };
+            const freshAway = {
               id: away.id,
               name: away.team.name,
               abbreviation: away.team.abbreviation,
               logo: away.team.logos?.[0]?.href,
               score: away.score,
               color: away.team.color ? `#${away.team.color}` : '#ef4444'
-            });
+            };
+
+            setHomeTeam(freshHome);
+            setAwayTeam(freshAway);
+
+            // Generate narrative using fresh data (not stale state)
+            if (data.momentum) {
+              const freshIsLive = comp.status.type.state === 'in';
+              const freshPeriod = comp.status.period;
+              const freshClock = comp.status.displayClock;
+
+              setMomentumData(data.momentum);
+              setGameStory(generateGameNarrative({
+                momentumData: data.momentum,
+                homeTeam: freshHome,
+                awayTeam: freshAway,
+                period: freshPeriod,
+                clock: freshClock,
+                isLive: freshIsLive,
+              }));
+            }
           }
         }
 
-        // Apply Momentum Data
-        if (data.momentum) {
+        // Apply Momentum Data (fallback if no header/competitors)
+        if (data.momentum && !data.summary?.header?.competitions?.[0]?.competitors) {
           setMomentumData(data.momentum);
-
-          // Generate a very basic narrative based on the last few plays
-          const lastPlays = data.momentum.slice(-5);
-          const recentMomentumChange = lastPlays.length > 0
-            ? lastPlays[lastPlays.length - 1].momentum - (lastPlays[0]?.momentum || 0)
-            : 0;
-
-          if (recentMomentumChange > 10) {
-            setGameStory(`The ${homeTeam?.name || 'home team'} is building significant momentum right now with a flurry of positive plays.`);
-          } else if (recentMomentumChange < -10) {
-            setGameStory(`The ${awayTeam?.name || 'away team'} has seized control recently, quieting the crowd.`);
-          } else {
-            setGameStory("The game flow is currently balanced with neither team establishing a clear sustained advantage over the last few minutes.");
-          }
         }
 
         if (data.playByPlay) {
@@ -211,26 +217,17 @@ function App() {
             awayTeamColor={awayTeam?.color}
             onTimePeriodSelect={(startIndex, endIndex) => {
               setSelectedTimeWindow({start: startIndex, end: endIndex});
-              
-              // Update narrative based on selected time period
+
               const selectedPlays = momentumData.slice(startIndex, endIndex + 1);
               if (selectedPlays.length > 0) {
-                const momentumChange = selectedPlays[selectedPlays.length - 1].momentum - (selectedPlays[0]?.momentum || 0);
-                const avgMomentum = selectedPlays.reduce((sum, p) => sum + p.momentum, 0) / selectedPlays.length;
-                const startTime = selectedPlays[0]?.clock || 'N/A';
-                const endTime = selectedPlays[selectedPlays.length - 1]?.clock || 'N/A';
-                
-                if (momentumChange > 15) {
-                  setGameStory(`From ${startTime} to ${endTime}: The ${homeTeam?.name || 'home team'} built strong momentum during this period, with an average momentum of ${avgMomentum.toFixed(1)}.`);
-                } else if (momentumChange < -15) {
-                  setGameStory(`From ${startTime} to ${endTime}: The ${awayTeam?.name || 'away team'} dominated this stretch, with an average momentum of ${avgMomentum.toFixed(1)}.`);
-                } else if (avgMomentum > 10) {
-                  setGameStory(`From ${startTime} to ${endTime}: The ${homeTeam?.name || 'home team'} maintained control during this period with an average momentum of ${avgMomentum.toFixed(1)}.`);
-                } else if (avgMomentum < -10) {
-                  setGameStory(`From ${startTime} to ${endTime}: The ${awayTeam?.name || 'away team'} held the advantage during this stretch with an average momentum of ${avgMomentum.toFixed(1)}.`);
-                } else {
-                  setGameStory(`From ${startTime} to ${endTime}: This was a balanced period with an average momentum of ${avgMomentum.toFixed(1)}. Neither team gained a significant advantage.`);
-                }
+                setGameStory(generateTimeWindowNarrative({
+                  momentumData: selectedPlays,
+                  fullData: momentumData,
+                  homeTeam: homeTeam,
+                  awayTeam: awayTeam,
+                  start: startIndex,
+                  end: endIndex,
+                }));
               }
             }}
           />
